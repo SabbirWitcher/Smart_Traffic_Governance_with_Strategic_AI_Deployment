@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Traffic Dhaka | AI Hackathon Edition</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; color: #0f172a; overflow: hidden; }
+        .chart-container { position: relative; width: 100%; height: 320px; }
+        #map { height: 450px; width: 100%; border-radius: 1rem; z-index: 10; }
+        .nav-active { background-color: #0d9488; color: white; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+        .custom-scroll::-webkit-scrollbar { width: 5px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fade-in 0.5s ease-out forwards; }
+    </style>
+</head>
+<body class="flex flex-col h-screen">
+
+    <header class="bg-white border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4 shrink-0 z-20 shadow-sm">
+        <div class="flex items-center gap-3">
+            <div class="bg-teal-700 text-white p-2 rounded-lg font-bold text-xl shadow-lg">DAI</div>
+            <div>
+                <h1 class="text-xl font-bold text-slate-900 leading-tight">Intelligent Urban Traffic Management</h1>
+                <p class="text-xs text-slate-500 font-medium italic">Hackathon Submission: Live Edge-AI Stream & Enforcement</p>
+            </div>
+        </div>
+        <nav class="flex p-1 bg-slate-100 rounded-xl space-x-1 border border-slate-200">
+            <button onclick="showTab('dashboard')" id="tab-dashboard-btn" class="nav-btn px-5 py-2 text-sm font-semibold rounded-lg transition-all nav-active">Dashboard</button>
+            <button onclick="showTab('perception')" id="tab-perception-btn" class="nav-btn px-5 py-2 text-sm font-semibold rounded-lg transition-all text-slate-600">Live Perception (AI)</button>
+            <button onclick="showTab('pragati')" id="tab-pragati-btn" class="nav-btn px-5 py-2 text-sm font-semibold rounded-lg transition-all text-slate-600 border-l border-slate-300">Pragati Sharani Data</button>
+            <button onclick="showTab('simulator')" id="tab-simulator-btn" class="nav-btn px-5 py-2 text-sm font-semibold rounded-lg transition-all text-slate-600">Impact Simulator</button>
+        </nav>
+    </header>
+
+    <main class="flex-grow overflow-y-auto p-6 custom-scroll relative">
+        
+        <section id="tab-dashboard" class="tab-content block space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <span class="text-slate-500 text-[10px] font-bold uppercase tracking-widest mb-2">V/C Ratio</span>
+                    <div class="text-3xl font-bold text-slate-900">1.18</div>
+                </div>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <span class="text-slate-500 text-[10px] font-bold uppercase tracking-widest mb-2">Total Detections</span>
+                    <div class="text-3xl font-bold text-slate-900" id="violation-counter">1,248</div>
+                </div>
+                <div class="bg-amber-50 border border-amber-200 p-6 rounded-2xl shadow-sm flex flex-col">
+                    <span class="text-amber-700 text-[10px] font-bold uppercase tracking-widest mb-2">Pending Evictions</span>
+                    <div class="text-3xl font-bold text-amber-700" id="vendor-counter">42</div>
+                </div>
+                <div class="bg-teal-900 p-6 rounded-2xl shadow-lg flex flex-col text-white">
+                    <span class="text-teal-400 text-[10px] font-bold uppercase tracking-widest mb-2">Revenue Recovery</span>
+                    <span class="text-3xl font-bold" id="total-revenue-kpi">৳ 0</span>
+                </div>
+            </div>
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                <h3 class="font-bold text-slate-800 mb-4">Road Capacity Erosion</h3>
+                <div class="chart-container"><canvas id="capacityChart"></canvas></div>
+            </div>
+        </section>
+
+        <section id="tab-perception" class="tab-content hidden space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-2 space-y-4">
+                    
+                    <div class="bg-slate-900 rounded-3xl overflow-hidden shadow-2xl border-4 border-slate-800 relative aspect-video flex items-center justify-center">
+                        
+                        <video id="live-video" src="traffic.mp4" crossorigin="anonymous" class="w-full h-full object-cover opacity-80" autoplay loop muted playsinline></video>
+                        
+                        <canvas id="ai-canvas" class="absolute top-0 left-0 w-full h-full z-10 pointer-events-none"></canvas>
+
+                        <div class="absolute top-4 left-4 z-20" id="status-container">
+                            <span id="ai-status" class="bg-amber-600 text-white text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1 shadow-lg">
+                                <span class="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span> LOADING TENSORFLOW WEIGHTS...
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div class="bg-slate-50 px-6 py-3 border-b border-slate-200 flex justify-between">
+                            <span class="font-bold text-slate-800 text-sm">Automated Dispatch & E-Challan Queue</span>
+                        </div>
+                        <div class="overflow-x-auto h-64 custom-scroll">
+                            <table class="w-full text-left text-[11px]">
+                                <thead class="bg-slate-100 text-slate-500 sticky top-0 uppercase tracking-wider">
+                                    <tr><th class="px-6 py-2">Target</th><th class="px-6 py-2">Category</th><th class="px-6 py-2">Penalty</th><th class="px-6 py-2">Status</th></tr>
+                                </thead>
+                                <tbody id="challan-body" class="divide-y divide-slate-100"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-4">
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+                        <h4 class="text-xs font-bold text-slate-800">Geospatial Live Tracker</h4>
+                    </div>
+                    <div id="map" class="shadow-inner border-2 border-slate-100"></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="tab-pragati" class="tab-content hidden space-y-6">
+            <div class="bg-slate-900 text-white p-8 rounded-3xl shadow-xl flex items-center justify-between">
+                <div>
+                    <h2 class="text-2xl font-bold text-white mb-2">Pragati Sharani Node</h2>
+                    <p class="text-slate-400 text-sm">Zone: DNCC Badda | Historical & Verified Sensor Data Hub</p>
+                </div>
+                <div class="bg-teal-800 px-4 py-2 rounded-xl border border-teal-700 font-mono text-xs">
+                    SENSOR ID: PS-N-042
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <h4 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Peak Flow Rate</h4>
+                    <div class="text-3xl font-bold text-slate-900 mb-1">3,420 <span class="text-sm font-normal text-slate-500">veh/hr</span></div>
+                    <p class="text-xs text-rose-500 font-bold">14% over operational limit</p>
+                </div>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <h4 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Top Violation</h4>
+                    <div class="text-xl font-bold text-slate-900 mb-1">Irregular Bus Stopping</div>
+                    <p class="text-xs text-slate-500">Accounts for 62% of blockages</p>
+                </div>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <h4 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Air Quality Index (AQI)</h4>
+                    <div class="text-3xl font-bold text-slate-900 mb-1">168</div>
+                    <p class="text-xs text-amber-500 font-bold">Unhealthy (Correlates w/ Idling)</p>
+                </div>
+            </div>
+
+            <div class="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
+                <h3 class="font-bold text-slate-800 mb-6">Traffic Composition Breakdown (7-Day Avg)</h3>
+                <div class="chart-container"><canvas id="pragatiChart"></canvas></div>
+            </div>
+        </section>
+
+        <section id="tab-simulator" class="tab-content hidden">
+            <div class="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
+                <h3 class="font-bold text-slate-800 mb-6">Policy Simulator</h3>
+                <div class="chart-container"><canvas id="simChart"></canvas></div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // Global State
+        let map, markers, simChart, pragatiChart;
+        let totalRevenue = 0, totalVendors = 42, totalDetections = 1248;
+        const violations = ["Illegal Parking", "Vendor Encroachment", "Irregular Bus Stop"];
+        const platePrefixes = ["DHA-METRO-KA", "DHA-METRO-GA", "DHA-METRO-LA", "DHA-METRO-GHA"];
+
+        // AI Variables
+        let aiModel = null;
+
+        // --- UI Navigation ---
+        function showTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+            document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('nav-active', 'bg-teal-700', 'text-white'));
+            document.getElementById(`tab-${tabId}-btn`).classList.add('nav-active');
+            
+            if(tabId === 'perception') {
+                setTimeout(() => map.invalidateSize(), 100);
+            }
+        }
+
+        // --- REAL AI INFERENCE ENGINE ---
+        async function loadAI() {
+            try {
+                // Force video to play in case autoplay policies blocked it
+                const video = document.getElementById('live-video');
+                video.play().catch(e => console.log("Autoplay check:", e));
+
+                // Load the COCO-SSD object detection model from Google
+                aiModel = await cocoSsd.load();
+                
+                const status = document.getElementById('ai-status');
+                status.className = "bg-teal-600 text-white text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1 shadow-lg";
+                status.innerHTML = `<span class="w-1.5 h-1.5 bg-white rounded-full animate-ping"></span> TFJS INFERENCE: LIVE`;
+                
+                startVideoInference();
+            } catch (error) {
+                console.error("AI Load Error:", error);
+                document.getElementById('ai-status').innerHTML = "ERROR: CHECK INTERNET CONNECTION";
+                document.getElementById('ai-status').classList.replace("bg-amber-600", "bg-rose-600");
+            }
+        }
+
+        function startVideoInference() {
+            const video = document.getElementById('live-video');
+            const canvas = document.getElementById('ai-canvas');
+            const ctx = canvas.getContext('2d');
+            let detectionCooldown = 0; 
+
+            async function detectFrame() {
+                if (video.paused || video.ended) {
+                    requestAnimationFrame(detectFrame);
+                    return;
+                }
+
+                // Match canvas to video physical size dynamically
+                canvas.width = video.clientWidth;
+                canvas.height = video.clientHeight;
+
+                // Execute real TFJS detection
+                try {
+                    const predictions = await aiModel.detect(video);
+                    
+                    // Clear previous boxes
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    
+                    predictions.forEach(prediction => {
+                        // Filter for traffic relevant objects
+                        if (['car', 'bus', 'truck', 'motorcycle', 'person'].includes(prediction.class)) {
+                            
+                            // Map video coordinates to canvas sizing
+                            const ratioX = canvas.width / video.videoWidth;
+                            const ratioY = canvas.height / video.videoHeight;
+                            const [x, y, width, height] = prediction.bbox;
+                            
+                            const adjX = x * ratioX;
+                            const adjY = y * ratioY;
+                            const adjW = width * ratioX;
+                            const adjH = height * ratioY;
+
+                            const isPerson = prediction.class === 'person';
+                            const color = isPerson ? '#fbbf24' : '#2dd4bf'; // Amber for people, Teal for vehicles
+
+                            // Draw Box
+                            ctx.strokeStyle = color;
+                            ctx.lineWidth = 2;
+                            ctx.strokeRect(adjX, adjY, adjW, adjH);
+                            
+                            // Draw Label Background
+                            ctx.fillStyle = color;
+                            ctx.fillRect(adjX, adjY - 16, Math.max(100, ctx.measureText(prediction.class).width + 10), 16);
+                            
+                            // Draw Label Text
+                            ctx.fillStyle = '#0f172a';
+                            ctx.font = '10px Plus Jakarta Sans';
+                            ctx.fontWeight = 'bold';
+                            ctx.fillText(`${prediction.class.toUpperCase()} ${Math.round(prediction.score * 100)}%`, adjX + 4, adjY - 4);
+
+                            // Trigger backend enforcement logic if confidence is high
+                            if (prediction.score > 0.65 && detectionCooldown <= 0) {
+                                triggerEnforcement(isPerson ? 'Vendor Encroachment' : 'Illegal Parking');
+                                detectionCooldown = 60; // Cooldown to prevent spam
+                            }
+                        }
+                    });
+                } catch(e) {
+                    // Fail silently on frame drops
+                }
+
+                if (detectionCooldown > 0) detectionCooldown--;
+                requestAnimationFrame(detectFrame);
+            }
+            detectFrame();
+        }
+
+        // --- ENFORCEMENT & UI LOGIC ---
+        function triggerEnforcement(type) {
+            const table = document.getElementById('challan-body');
+            const isVendor = type === "Vendor Encroachment";
+
+            totalDetections++;
+            document.getElementById('violation-counter').innerText = totalDetections.toLocaleString();
+
+            let targetText, fineHTML, statusHTML, markerColor;
+
+            if (isVendor) {
+                totalVendors++;
+                document.getElementById('vendor-counter').innerText = totalVendors.toLocaleString();
+                targetText = `<span class="text-slate-500 italic">Unregistered NMT / Vendor</span>`;
+                fineHTML = `<span class="text-amber-600 font-bold">Eviction Request</span>`;
+                statusHTML = `<span class="text-amber-500 font-bold bg-amber-50 px-2 py-1 rounded border border-amber-200">NOTIFIED: DNCC</span>`;
+                markerColor = '#f59e0b';
+            } else {
+                const plate = `${platePrefixes[Math.floor(Math.random()*4)]}-${Math.floor(1000+Math.random()*9000)}`;
+                const fine = 1200;
+                totalRevenue += fine;
+                document.getElementById('total-revenue-kpi').innerText = `৳ ${totalRevenue.toLocaleString()}`;
+                targetText = `<span class="font-bold text-slate-800">${plate}</span>`;
+                fineHTML = `<span class="font-bold text-slate-900">৳${fine}</span>`;
+                statusHTML = `<span class="text-emerald-500 font-bold bg-emerald-50 px-2 py-1 rounded border border-emerald-200">CHALLAN ISSUED</span>`;
+                markerColor = '#e11d48';
+            }
+
+            const tr = document.createElement('tr');
+            tr.className = "animate-fade-in hover:bg-slate-50 transition-colors";
+            tr.innerHTML = `<td class="px-6 py-4">${targetText}</td><td class="px-6 py-4"><span class="bg-slate-100 text-slate-600 px-2 py-1 rounded-full border border-slate-200 text-[10px] font-bold">${type}</span></td><td class="px-6 py-4">${fineHTML}</td><td class="px-6 py-4">${statusHTML}</td>`;
+            table.prepend(tr);
+            if(table.children.length > 6) table.removeChild(table.lastChild);
+
+            // Update Map
+            const center = [23.8103, 90.4125];
+            const lat = center[0] + (Math.random() - 0.5) * 0.04;
+            const lng = center[1] + (Math.random() - 0.5) * 0.04;
+
+            L.circleMarker([lat, lng], { radius: isVendor ? 6 : 8, fillColor: markerColor, color: '#ffffff', weight: 2, fillOpacity: 0.9 }).addTo(markers)
+             .bindPopup(`<div class="text-center font-sans"><b class="text-[10px] uppercase ${isVendor ? 'text-amber-600' : 'text-rose-600'}">${type}</b><div class="text-xs mt-1 font-bold text-slate-700">${isVendor ? 'Dispatched to DNCC' : targetText}</div></div>`).openPopup();
+            
+            if(markers.getLayers().length > 6) markers.removeLayer(markers.getLayers()[0]);
+        }
+
+        window.onload = function() {
+            // Init Leaflet Map
+            map = L.map('map', { zoomControl: false }).setView([23.8103, 90.4125], 13);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(map);
+            markers = L.layerGroup().addTo(map);
+
+            Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif";
+
+            // Pragati Sharani Specific Chart
+            new Chart(document.getElementById('pragatiChart').getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    labels: ['Private Cars', 'Buses', 'Rickshaws (NMT)', 'Motorcycles', 'Commercial Trucks'],
+                    datasets: [{
+                        data: [45, 15, 25, 10, 5],
+                        backgroundColor: ['#0f172a', '#0d9488', '#f59e0b', '#3b82f6', '#e11d48'],
+                        borderWidth: 0
+                    }]
+                },
+                options: { maintainAspectRatio: false, cutout: '70%', plugins: { legend: { position: 'right' } } }
+            });
+            
+            // Dashboard Chart
+            new Chart(document.getElementById('capacityChart').getContext('2d'), {
+                type: 'bar', 
+                data: { labels: ['Base', 'Parking', 'Vendor', 'Bus Block'], datasets: [{ data: [1900, 1150, 1600, 950], backgroundColor: ['#0d9488', '#e11d48', '#f59e0b', '#fb7185'], borderRadius: 6 }] },
+                options: { maintainAspectRatio: false, plugins: { legend: { display: false } } }
+            });
+
+            // Simulator Chart
+            new Chart(document.getElementById('simChart').getContext('2d'), {
+                type: 'bar',
+                data: { labels: ['Avg Trip (Min)', 'Signal Wait (Sec)'], datasets: [{ label: 'Status Quo', data: [45, 120], backgroundColor: '#cbd5e1' }, { label: 'Optimized Prediction', data: [33.9, 75], backgroundColor: '#0d9488' }] },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+
+            // Auto-load AI capabilities now that everything is staged
+            loadAI();
+        };
+    </script>
+</body>
+</html>
