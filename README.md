@@ -13,6 +13,12 @@ How to Install:
 5. Then in your browser paste this address:
   http://localhost:8000
 These two commands are also given in the commands.txt file.
+6. Then select smart_monitoring_system.html and open it.
+7. Click on the Live Perception (AI) tab to see the AI mark illegal traffic activities and take actions against them.
+8. On the dashboard you can see who how many occurences has been identified.
+9. On the Pragati Sarani data tab you can see how many types of illegal activites occured with their exact numbers.
+10. On the V2X emergency tab you can see how a traffic light is cleared for an emergency vehicle.
+11. In the Impact Simulator tab you can see by applying these rules how much of a change occurs.
 The video tutorial to run this is shwon in the YouTube Video and in the Smart_Monitoring_System.mp4 file.
 
     
