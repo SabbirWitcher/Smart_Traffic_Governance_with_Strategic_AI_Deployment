@@ -5,7 +5,7 @@ Requirements: Install Python 3.9 or above first.
 
 How to Install:
 
-1. Download the Zip file.
+1. Download the Zip file and extract all the files.
 2. Keep the smart_monitoring_system.html and the traffic.mp4 file in the same location.
 3. Open CMD in that location by typing CMD in the explorer or by right clicking and selecting open terminal here.
 4. In the CMD type this:
